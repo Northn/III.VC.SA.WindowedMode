@@ -6,7 +6,7 @@ BOOL APIENTRY DllMain(HMODULE /*hModule*/, DWORD reason, LPVOID /*lpReserved*/)
 	{
 		CDxHandler::ProcessIni();
 
-		if (injector::address_manager::singleton().IsIII())
+		/*if (injector::address_manager::singleton().IsIII())
 		{
 			CDxHandler::SetupHooksIII();
 		}
@@ -23,6 +23,10 @@ BOOL APIENTRY DllMain(HMODULE /*hModule*/, DWORD reason, LPVOID /*lpReserved*/)
 					CDxHandler::SetupHooksSA();
 				}
 			}
+		}*/
+		if (injector::address_manager::singleton().IsSA())
+		{
+			CDxHandler::SetupHooksSA();
 		}
 	}
 

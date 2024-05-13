@@ -17,15 +17,16 @@ bool CDxHandler::bShiftEnterLastState = false;
 bool CDxHandler::bCtrlEnterLastState = false;
 bool CDxHandler::bStopRecursion = false;
 bool CDxHandler::bSizingLoop = false;
-IDirect3D8** CDxHandler::pIntDirect3DMain;
-IDirect3DDevice8** CDxHandler::pDirect3DDevice;
+IDirect3D9** CDxHandler::pIntDirect3DMain;
+IDirect3DDevice9** CDxHandler::pDirect3DDevice;
+IDirect3DDevice9* CDxHandler::pOrigDirect3DDevice;
+kthook::kthook_simple<HRESULT(__stdcall*)(LPDIRECT3DDEVICE9 pDevice, D3DPRESENT_PARAMETERS_D3D9*)>  CDxHandler::reset_hook;
+kthook::kthook_simple<HRESULT(__stdcall*)(LPDIRECT3DDEVICE9 pDevice, D3DVIEWPORT9* pViewport)>  CDxHandler::setviewport_hook;
 GameDxInput** CDxHandler::pInputData;
 bool* CDxHandler::bMenuVisible;
 HWND* CDxHandler::hGameWnd;
 DisplayMode** CDxHandler::pDisplayModes;
 
-HRESULT(__stdcall *CDxHandler::oldReset)(LPDIRECT3DDEVICE8 pDevice, void* pPresentationParameters);
-HRESULT(__stdcall *CDxHandler::oldSetViewport)(LPDIRECT3DDEVICE8 pDevice, CONST D3DVIEWPORT8* pViewport);
 void(*CDxHandler::CPostEffectsDoScreenModeDependentInitializations)();
 void(*CDxHandler::CPostEffectsSetupBackBufferVertex)();
 void(*CDxHandler::CMBlurMotionBlurOpen)(RwCamera*);
@@ -84,7 +85,7 @@ HRESULT CDxHandler::HandleReset(D3D_TYPE* pPresentationParameters, void* pSource
 
     bool bOldRecursion = CDxHandler::bStopRecursion;
     CDxHandler::bStopRecursion = true;
-    HRESULT hRes = oldReset(*pDirect3DDevice, pPresentationParameters);
+    HRESULT hRes = reset_hook.call_trampoline(pOrigDirect3DDevice, pPresentationParameters);
     CDxHandler::bStopRecursion = bOldRecursion;
 
     if (!bInitialLocked) CDxHandler::StoreRestoreWindowInfo(true);
@@ -114,7 +115,7 @@ void CDxHandler::AdjustPresentParams(D3D_TYPE* pParams)
 
     pParams->Windowed = TRUE;
 
-    pParams->FullScreen_PresentationInterval = 0;
+    //pParams->FullScreen_PresentationInterval = 0;
     pParams->FullScreen_RefreshRateInHz = 0;
     pParams->EnableAutoDepthStencil = TRUE;
     pParams->BackBufferFormat = D3DFMT_A8R8G8B8;
@@ -308,10 +309,10 @@ void CDxHandler::MainCameraRebuildRaster(RwCamera* pCamera)
 {
     if (pCamera == *pRenderCamera)
     {
-        IDirect3DSurface8* pSurface;
+        IDirect3DSurface9* pSurface;
         D3DSURFACE_DESC stSurfaceDesc;
 
-        (*pDirect3DDevice)->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &pSurface);
+        (*pDirect3DDevice)->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, D3DBACKBUFFER_TYPE_MONO, &pSurface);
         pSurface->GetDesc(&stSurfaceDesc);
         pSurface->Release();
 
@@ -463,19 +464,19 @@ LRESULT APIENTRY CDxHandler::MvlWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
     return CallWindowProc(wndProcOld, hwnd, uMsg, wParam, lParam);
 }
 
-HRESULT __stdcall ResetSA(LPDIRECT3DDEVICE8 pDevice, D3DPRESENT_PARAMETERS_D3D9* pPresentationParameters) {
+HRESULT ResetSA(const decltype(CDxHandler::reset_hook) &hook, LPDIRECT3DDEVICE9 pDevice, D3DPRESENT_PARAMETERS_D3D9* pPresentationParameters) {
     return CDxHandler::HandleReset(pPresentationParameters, nullptr);
 }
 
-HRESULT __stdcall Reset(LPDIRECT3DDEVICE8 pDevice, D3DPRESENT_PARAMETERS* pPresentationParameters) {
-    return CDxHandler::HandleReset(pPresentationParameters, nullptr);
-}
+//HRESULT Reset(LPDIRECT3DDEVICE9 pDevice, D3DPRESENT_PARAMETERS* pPresentationParameters) {
+//    return CDxHandler::HandleReset(pPresentationParameters, nullptr);
+//}
 
-HRESULT __stdcall SetViewport(LPDIRECT3DDEVICE8 pDevice, CONST D3DVIEWPORT8* pViewport) {
+HRESULT SetViewport(const decltype(CDxHandler::setviewport_hook) &hook, LPDIRECT3DDEVICE9 pDevice, D3DVIEWPORT9* pViewport) {
     bool bInitialLock = CDxHandler::bChangingLocked;
 
     if (!bInitialLock) CDxHandler::StoreRestoreWindowInfo(false);
-    HRESULT hres = CDxHandler::oldSetViewport(*CDxHandler::pDirect3DDevice, pViewport);
+    HRESULT hres = hook.call_trampoline(CDxHandler::pOrigDirect3DDevice, pViewport);
     if (!bInitialLock) CDxHandler::StoreRestoreWindowInfo(true);
 
     return hres;
@@ -485,15 +486,21 @@ void CDxHandler::Direct3DDeviceReplaceSA(void)
 {
     if (*pDirect3DDevice != NULL)
     {
+        pOrigDirect3DDevice = *(IDirect3DDevice9**)0xC97C28;
         UINT_PTR* pVTable = (UINT_PTR*)(*((UINT_PTR*)*pDirect3DDevice));
-        if (!oldReset)
+        /*if (!oldReset)
         {
-            oldReset = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE8 pDevice, void* pPresentationParameters))(*(uint32_t*)&pVTable[16]);
-            oldSetViewport = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE8 pDevice, CONST D3DVIEWPORT8* pViewport))(*(uint32_t*)&pVTable[47]);
-        }
+            oldReset = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE9 pDevice, void* pPresentationParameters))(*(uint32_t*)&pVTable[16]);
+            oldSetViewport = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE9 pDevice, CONST D3DVIEWPORT9* pViewport))(*(uint32_t*)&pVTable[47]);
+        }*/
 
-        injector::WriteMemory(&pVTable[16], &ResetSA, true);
-        injector::WriteMemory(&pVTable[47], &SetViewport, true);
+        reset_hook.set_cb(ResetSA);
+        reset_hook.set_dest(pVTable[16]);
+        reset_hook.install();
+
+        setviewport_hook.set_cb(SetViewport);
+        setviewport_hook.set_dest(pVTable[47]);
+        setviewport_hook.install();
     }
 }
 
@@ -503,14 +510,14 @@ void CDxHandler::Direct3DDeviceReplace(void)
     if (*pDirect3DDevice != NULL)
     {
         UINT_PTR* pVTable = (UINT_PTR*)(*((UINT_PTR*)*pDirect3DDevice));
-        if (!oldReset)
+        /*if (!oldReset)
         {
-            oldReset = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE8 pDevice, void* pPresentationParameters))(*(uint32_t*)&pVTable[14]);
-            oldSetViewport = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE8 pDevice, CONST D3DVIEWPORT8* pViewport))(*(uint32_t*)&pVTable[40]);
-        }
+            oldReset = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE9 pDevice, void* pPresentationParameters))(*(uint32_t*)&pVTable[14]);
+            oldSetViewport = (HRESULT(__stdcall *)(LPDIRECT3DDEVICE9 pDevice, CONST D3DVIEWPORT9* pViewport))(*(uint32_t*)&pVTable[40]);
+        }*/
 
-        injector::WriteMemory(&pVTable[14], &Reset, true);
-        injector::WriteMemory(&pVTable[40], &SetViewport, true);
+        //injector::WriteMemory(&pVTable[14], &Reset, true);
+        //injector::WriteMemory(&pVTable[40], &SetViewport, true);
     }
 }
 
@@ -809,3 +816,5 @@ void __declspec(naked) CDxHandler::HookDirect3DDeviceReplacerSA(void)
     _asm test eax, eax
     _asm jmp HookDirect3DDeviceReplacerJmp
 }
+
+#include <hde/hde32.c>

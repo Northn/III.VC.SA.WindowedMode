@@ -1,5 +1,6 @@
 #pragma once
 #include "misc.h"
+#include <kthook/kthook.hpp>
 
 class CDxHandler
 {
@@ -27,8 +28,8 @@ public:
     static void SetupHooksIII(void);
     static void SetupHooksSA(void);
     static void ProcessIni(void);
-    static HRESULT(__stdcall *oldReset)(LPDIRECT3DDEVICE8 pDevice, void* pPresentationParameters);
-    static HRESULT(__stdcall *oldSetViewport)(LPDIRECT3DDEVICE8 pDevice, CONST D3DVIEWPORT8* pViewport);
+    static kthook::kthook_simple<HRESULT(__stdcall*)(LPDIRECT3DDEVICE9 pDevice, D3DPRESENT_PARAMETERS_D3D9*)> reset_hook;
+    static kthook::kthook_simple<HRESULT(__stdcall*)(LPDIRECT3DDEVICE9 pDevice, D3DVIEWPORT9* pViewport)> setviewport_hook;
 
     static bool bIsInputExclusive;
     static bool bCursorStatus;
@@ -44,8 +45,9 @@ public:
     static bool bChangingLocked;
     static bool bSizingLoop;
 
-    static IDirect3D8** pIntDirect3DMain;
-    static IDirect3DDevice8** pDirect3DDevice;
+    static IDirect3D9** pIntDirect3DMain;
+    static IDirect3DDevice9** pDirect3DDevice;
+    static IDirect3DDevice9* pOrigDirect3DDevice;
     static GameDxInput** pInputData;
     static bool* bMenuVisible;
     static HWND* hGameWnd;
